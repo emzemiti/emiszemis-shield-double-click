@@ -1,30 +1,59 @@
-package com.example;
+package net.fabricmc.example;
 
-import net.fabricmc.api.ModInitializer;
+import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.option.KeyBinding;
+import net.minecraft.client.util.InputUtil;
+import net.minecraft.entity.LivingEntity;
+import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 
-import net.minecraft.resources.Identifier;
+public class ExampleMod implements ClientModInitializer {
+    public static KeyBinding toggleKey;
+    private static boolean isEnabled = false;
+    private static boolean wasRightClickPressed = false;
+    private static boolean scheduleNextTickClick = false;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+    @Override
+    public void onInitializeClient() {
+        // 1. Register the 'G' toggle keybind in Controls
+        toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+            "key.shieldclick.toggle",
+            InputUtil.Type.KEYSYM,
+            GLFW.GLFW_KEY_G,
+            "category.shieldclick.main"
+        ));
 
-public class ExampleMod implements ModInitializer {
-	public static final String MOD_ID = "modid";
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            if (client.player == null || client.world == null) return;
 
-	// This logger is used to write text to the console and the log file.
-	// It is considered best practice to use your mod id as the logger's name.
-	// That way, it's clear which mod wrote info, warnings, and errors.
-	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+            // Handle G key toggle
+            while (toggleKey.wasPressed()) {
+                isEnabled = !isEnabled;
+                client.player.sendMessage(
+                    Text.literal(isEnabled ? "§aShield Double-Click: ON" : "§cShield Double-Click: OFF"),
+                    true
+                );
+            }
 
-	@Override
-	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
+            // 2. If scheduled from the previous tick, trigger the second click now
+            if (scheduleNextTickClick) {
+                scheduleNextTickClick = false;
+                KeyBinding.onKeyPressed(client.options.useKey.getDefaultKey());
+            }
 
-		LOGGER.info("Hello Fabric world!");
-	}
+            if (!isEnabled) return;
 
-	public static Identifier id(String path) {
-		return Identifier.fromNamespaceAndPath(MOD_ID, path);
-	}
+            // 3. Detect fresh right-click press while looking at an entity blocking with a shield
+            boolean isRightClickDown = client.options.useKey.isPressed();
+            if (isRightClickDown && !wasRightClickPressed) {
+                if (client.targetedEntity instanceof LivingEntity target && target.isBlocking()) {
+                    scheduleNextTickClick = true;
+                }
+            }
+            wasRightClickPressed = isRightClickDown;
+        });
+    }
 }
